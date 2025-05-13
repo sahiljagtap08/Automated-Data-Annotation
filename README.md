@@ -11,6 +11,7 @@ A computer vision-based system for automatically annotating hand activity in tas
 - [Usage](#usage)
   - [GUI Mode](#gui-mode)
   - [Command-line Mode](#command-line-mode)
+  - [Wearable Data Integration](#wearable-data-integration)
   - [Keyboard Controls](#keyboard-controls)
 - [Output Format](#output-format)
 - [Customization](#customization)
@@ -36,6 +37,7 @@ Key features include:
 - **Shape Analysis**: Distinguishes circular chips from rectangular boxes using contour analysis
 - **GUI Interface**: User-friendly interface for file selection and configuration
 - **Video Visualization**: Color-coded display of activities and detection status
+- **Wearable Data Integration**: Merge video annotations with accelerometer data from wearable devices
 
 ## Technical Architecture
 
@@ -44,6 +46,7 @@ The system consists of the following main components:
 1. **EnhancedHandTaskDetector**: Core detection engine that processes video frames to identify activities
 2. **VideoAnnotator**: Manages video processing, visualization, and CSV output
 3. **AnnotationGUI**: Provides a user interface for configuring and running annotations
+4. **ProcessAnnotations**: Integrates video annotations with wearable device accelerometer data
 
 ### Data Flow
 
@@ -55,6 +58,7 @@ The system consists of the following main components:
 6. Confidence scores for chip/box detection are updated based on visual analysis
 7. Annotations are generated with timestamps and activity labels
 8. Results are displayed visually and saved to a CSV file
+9. Annotations can be merged with accelerometer data from wearable devices
 
 ## Detection Algorithms
 
@@ -133,7 +137,7 @@ The system uses confidence scores that increase gradually with consistent detect
 
 ## Usage
 
-The system can be run in either GUI mode (default) or command-line mode.
+The system can be run in either GUI mode (default), command-line mode, or wearable data integration mode.
 
 ### GUI Mode
 
@@ -150,6 +154,8 @@ The GUI provides options to:
 4. Enable/disable debug mode
 5. Set visualization speed
 6. Start/stop annotation process
+
+**Note:** The GUI opens the video visualization in a separate window when processing starts.
 
 ### Command-line Mode
 
@@ -172,6 +178,33 @@ Available command-line options:
 --no-gui           Force command-line mode (no GUI)
 ```
 
+### Wearable Data Integration
+
+For projects integrating with wearable device data (accelerometer x,y,z data), use the process_annotations.py script:
+
+```
+python process_annotations.py --raw accelerometer_data.csv --video participant_video.mp4 --output annotated_data.csv
+```
+
+This script handles the complete workflow:
+1. Reads raw CSV with accelerometer data (containing unix timestamps)
+2. Creates a working copy of the data (preserving the raw data)
+3. Adds a readable time column by converting unix timestamps
+4. Processes the video for activity annotations
+5. Merges annotations with accelerometer data by timestamp matching
+6. Saves the annotated data as a new CSV file
+
+Available options:
+```
+--raw FILE         Path to raw CSV with accelerometer data (required)
+--video FILE       Path to video file for annotation (required)
+--output FILE      Path to final output CSV file (default: <raw>_annotated.csv)
+--rate RATE        Sampling rate for video annotation in Hz (default: 25)
+--keep-temp        Keep temporary processing files
+```
+
+The timestamp matching uses a nearest-neighbor approach with a 200ms threshold, ensuring that each accelerometer data point is annotated with the closest video-derived activity label.
+
 ### Keyboard Controls
 
 While the annotation process is running, you can use these controls:
@@ -192,13 +225,15 @@ The system generates a CSV file with the following columns:
 - `label`: Activity label (one of the five recognized activities)
 - `x`, `y`, `z`: Dummy accelerometer data fields (for compatibility)
 
+When using the wearable data integration mode, the output includes all original accelerometer data columns plus the activity labels.
+
 Example output:
 ```
 unixTimestampInMs,readableTime,label,x,y,z
-1631234567000,12:34:56,Taking the chip,0,0,0
-1631234567040,12:34:57,Taking the chip,0,0,0
-1631234567080,12:34:58,Placing the chip,0,0,0
-1631234567120,12:34:59,Off Task,0,0,0
+1631234567000,12:34:56,Taking the chip,0.23,0.45,9.81
+1631234567040,12:34:57,Taking the chip,0.25,0.42,9.78
+1631234567080,12:34:58,Placing the chip,0.31,0.55,9.82
+1631234567120,12:34:59,Off Task,0.02,0.03,9.79
 ```
 
 An activity summary is also printed at the end of processing, showing the distribution of activities.
@@ -247,6 +282,17 @@ if self.time_without_activity > 10:  # Changed from 5 (more tolerant)
     return "Off Task"
 ```
 
+### Modifying Timestamp Matching
+
+For wearable data integration, you can adjust the timestamp matching threshold in `merge_annotations`:
+
+```python
+# If closest timestamp is within 200ms, use that annotation
+if min_diff <= 200:  # Adjust threshold as needed (in milliseconds)
+    df_final.at[i, 'label'] = annotation_labels[closest_idx]
+    matches += 1
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -270,6 +316,16 @@ if self.time_without_activity > 10:  # Changed from 5 (more tolerant)
    - Verify that Tesseract OCR is properly installed
    - Adjust the timestamp_roi coordinates to match your video's timestamp location
    - Try preprocessing options in `_extract_timestamp_from_frame`
+
+5. **GUI buttons not visible**:
+   - Try resizing the GUI window to see if buttons appear at the bottom
+   - Use command-line mode as an alternative
+   - Check if the window is maximized
+
+6. **Timestamp matching issues**:
+   - Verify that the unix timestamps in accelerometer data are in milliseconds
+   - Adjust the matching threshold (default: 200ms)
+   - Use the `--keep-temp` option to inspect intermediate files
 
 ### Debug Mode
 
@@ -306,6 +362,15 @@ A: Ensure good lighting, use a high-quality camera, position the camera to clear
 
 **Q: What if the participant uses their non-watch hand?**
 A: The system is designed to track only the watch-wearing hand, as specified in the requirements. Activities performed with the non-dominant hand will not be tracked.
+
+**Q: How do I synchronize video with wearable device data?**
+A: The `process_annotations.py` script handles this automatically by matching timestamps between the video annotations and accelerometer data. Make sure your accelerometer data contains unix timestamps in milliseconds.
+
+**Q: Will this work with smartwatch data?**
+A: Yes, the system is designed to work with any wearable device data as long as it contains a unix timestamp column. The integration script will handle the merging of annotations with your device data.
+
+**Q: What if my accelerometer sampling rate is different from the video?**
+A: The timestamp matching algorithm handles different sampling rates by finding the closest video annotation for each accelerometer data point, within a configurable time threshold.
 
 ---
 
