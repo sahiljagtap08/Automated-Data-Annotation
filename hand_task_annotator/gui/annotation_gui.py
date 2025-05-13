@@ -45,6 +45,7 @@ class AnnotationGUI:
         self.real_time_output = tk.BooleanVar(value=True)  # Default to real-time output
         self.use_ocr = tk.BooleanVar(value=False)  # OCR timestamp extraction
         self.frame_delay = tk.IntVar(value=1)  # Speed control (ms)
+        self.headless_mode = tk.BooleanVar(value=False)  # Headless mode (no visualization)
         
         # For storing default paths
         self.config_file = os.path.expanduser("~/.hand_annotator_config.json")
@@ -89,6 +90,13 @@ class AnnotationGUI:
         
         ttk.Label(settings_frame, text="Visualization Speed:").grid(row=1, column=1, sticky=tk.W)
         ttk.Scale(settings_frame, from_=1, to=100, orient="horizontal", variable=self.frame_delay).grid(row=1, column=2, columnspan=2, padx=5, pady=5, sticky=tk.W+tk.E)
+        
+        # Third row: Headless mode
+        ttk.Checkbutton(settings_frame, text="Headless Mode (No Visualization)", variable=self.headless_mode).grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky=tk.W)
+        headless_tip = ttk.Label(settings_frame, text="Use if visualization causes errors")
+        headless_tip.grid(row=2, column=2, columnspan=2, padx=5, pady=5, sticky=tk.W)
+        self.style.configure("TipLabel.TLabel", foreground="gray", font=("TkDefaultFont", 9, "italic"))
+        headless_tip.configure(style="TipLabel.TLabel")
         
         # Console output
         console_frame = ttk.LabelFrame(main_frame, text="Console Output", padding="10")
@@ -288,7 +296,8 @@ class AnnotationGUI:
             output_path=self.output_path.get(),
             real_time_output=self.real_time_output.get(),
             debug_mode=self.debug_mode.get(),
-            log_file=None  # No file logging in GUI mode
+            log_file=None,  # No file logging in GUI mode
+            headless_mode=self.headless_mode.get()  # Use headless mode setting
         )
         
         # Set visualization speed

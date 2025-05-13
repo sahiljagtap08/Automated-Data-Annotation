@@ -32,6 +32,8 @@ def parse_args():
                        help='Path to log file (if not specified, logs only to console)')
     parser.add_argument('--real-time', '-rt', action='store_true',
                        help='Enable real-time output to CSV file')
+    parser.add_argument('--headless', action='store_true',
+                       help='Run in headless mode (no visualization)')
     
     # GUI mode
     parser.add_argument('--gui', '-g', action='store_true',
@@ -68,13 +70,16 @@ def main():
         output_path=args.output,
         real_time_output=args.real_time,
         debug_mode=args.debug,
-        log_file=args.log_file
+        log_file=args.log_file,
+        headless_mode=args.headless
     )
     
     # Process video
     print(f"Processing video: {args.video}")
     print(f"Output will be saved to: {args.output}")
     print(f"Sampling rate: {args.rate}Hz")
+    if args.headless:
+        print("Running in headless mode (no visualization)")
     
     result = annotator.process_video()
     

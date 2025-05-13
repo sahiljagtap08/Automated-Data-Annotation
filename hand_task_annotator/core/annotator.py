@@ -18,7 +18,7 @@ class VideoAnnotator:
     CSV output generation with configurable sampling rate.
     """
     
-    def __init__(self, video_path=None, sampling_rate=25, output_path=None, real_time_output=False, debug_mode=False, log_file=None):
+    def __init__(self, video_path=None, sampling_rate=25, output_path=None, real_time_output=False, debug_mode=False, log_file=None, headless_mode=False):
         self.video_path = video_path
         self.detector = EnhancedHandTaskDetector(debug_mode=debug_mode)
         if log_file:
@@ -33,6 +33,7 @@ class VideoAnnotator:
         self.paused = False  # For pausing
         self.step_mode = False  # For step-by-step processing
         self.frame_delay = 1   # Milliseconds between frames (1 for fastest, higher for slower)
+        self.headless_mode = headless_mode  # Skip visualization when true
         
         # For OCR timestamp extraction
         try:
@@ -118,14 +119,27 @@ class VideoAnnotator:
                            'x2': int(frame.shape[1] * 0.95),
                            'y2': int(frame.shape[0] * 0.15)}
         
+        # Try visualization first frame - if it fails, switch to headless mode
+        try:
+            if not self.headless_mode:
+                cv2.namedWindow('Video Annotation', cv2.WINDOW_NORMAL)
+                cv2.imshow('Video Annotation', frame)
+                cv2.waitKey(1)  # Test if window works
+        except Exception as e:
+            self.log(f"Warning: Unable to create visualization window: {str(e)}", "WARNING")
+            self.headless_mode = True
+            self.log("Switching to headless mode (no visualization)", "WARNING")
+        
         while cap.isOpened():
             # Handle paused state
-            if self.paused and not self.step_mode:
+            if self.paused and not self.step_mode and not self.headless_mode:
                 # Show the current frame with "PAUSED" overlay
                 paused_frame = frame.copy()
                 cv2.putText(paused_frame, "PAUSED - Press 'P' to resume, 'S' for step", 
                            (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                 cv2.imshow('Video Annotation', paused_frame)
+                
+                # Handle keypresses while paused
                 key = cv2.waitKey(100) & 0xFF
                 
                 # Handle keypresses while paused
@@ -145,7 +159,7 @@ class VideoAnnotator:
                 continue
                 
             # If in step mode, process one frame then pause again
-            if self.step_mode:
+            if self.step_mode and not self.headless_mode:
                 self.step_mode = False
                 self.paused = True
             
@@ -194,7 +208,7 @@ class VideoAnnotator:
                 self._draw_visualization(frame, activity, timestamp)
                 
                 # Add artificial delay for slower viewing if needed
-                if self.frame_delay > 1:
+                if self.frame_delay > 1 and not self.headless_mode:
                     cv2.waitKey(self.frame_delay)
                 
                 # Write batch to file when it reaches batch size
@@ -233,27 +247,28 @@ class VideoAnnotator:
             frame_index += 1
             
             # Check for quit
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            elif key == ord('f'):  # Fast-forward option
-                # Skip ahead by 10 seconds
-                skip_frames = int(fps * 10)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index + skip_frames)
-                frame_index += skip_frames
-                self.log(f"Fast-forwarded 10 seconds to frame {frame_index}", "INFO")
-            elif key == ord('p'):  # Pause/resume
-                self.paused = not self.paused
-                if self.paused:
-                    self.log("Playback paused", "INFO")
-                else:
-                    self.log("Playback resumed", "INFO")
-            elif key == ord('+') or key == ord('='):  # Speed up visualization
-                self.frame_delay = max(1, self.frame_delay - 10)
-                self.log(f"Frame delay: {self.frame_delay}ms", "INFO")
-            elif key == ord('-'):  # Slow down visualization
-                self.frame_delay = min(500, self.frame_delay + 10)
-                self.log(f"Frame delay: {self.frame_delay}ms", "INFO")
+            if not self.headless_mode:
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    break
+                elif key == ord('f'):  # Fast-forward option
+                    # Skip ahead by 10 seconds
+                    skip_frames = int(fps * 10)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index + skip_frames)
+                    frame_index += skip_frames
+                    self.log(f"Fast-forwarded 10 seconds to frame {frame_index}", "INFO")
+                elif key == ord('p'):  # Pause/resume
+                    self.paused = not self.paused
+                    if self.paused:
+                        self.log("Playback paused", "INFO")
+                    else:
+                        self.log("Playback resumed", "INFO")
+                elif key == ord('+') or key == ord('='):  # Speed up visualization
+                    self.frame_delay = max(1, self.frame_delay - 10)
+                    self.log(f"Frame delay: {self.frame_delay}ms", "INFO")
+                elif key == ord('-'):  # Slow down visualization
+                    self.frame_delay = min(500, self.frame_delay + 10)
+                    self.log(f"Frame delay: {self.frame_delay}ms", "INFO")
         
         # Add any remaining annotations
         if batch_annotations:
@@ -276,7 +291,8 @@ class VideoAnnotator:
                 self.log(f"Final results saved to {self.output_path}", "SUCCESS")
         
         cap.release()
-        cv2.destroyAllWindows()
+        if not self.headless_mode:
+            cv2.destroyAllWindows()
         
         # Save final annotations if not already saved
         if not (self.real_time_output and self.output_path):
@@ -286,69 +302,78 @@ class VideoAnnotator:
     
     def _draw_visualization(self, frame, activity, timestamp):
         """Draw visualization on frame for debugging with enhanced information"""
-        # Make a copy of the frame to avoid modifying the original
-        vis_frame = frame.copy()
-        
-        # Draw ROIs
-        self._draw_roi(vis_frame, self.detector.chip_source_roi, (0, 0, 255), "Chip Source")
-        self._draw_roi(vis_frame, self.detector.chip_dest_roi, (0, 255, 0), "Chip Dest")
-        self._draw_roi(vis_frame, self.detector.box_source_roi, (255, 0, 0), "Box Source")
-        self._draw_roi(vis_frame, self.detector.box_dest_roi, (0, 255, 255), "Box Dest")
-        
-        # Draw current activity label with prominent background
-        label_size, _ = cv2.getTextSize(activity, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
-        cv2.rectangle(vis_frame, (5, 5), (15 + label_size[0], 35), (0, 0, 0), -1)
-        
-        # Use color coding for activity
-        if activity == "Off Task":
-            color = (0, 0, 255)  # Red for off task
-        elif "Taking" in activity:
-            color = (255, 165, 0)  # Orange for taking
-        else:
-            color = (0, 255, 0)  # Green for placing
+        # Skip visualization in headless mode
+        if self.headless_mode:
+            return
             
-        cv2.putText(vis_frame, activity, (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-        
-        # Draw timestamp
-        time_str = self._format_timestamp(timestamp)
-        cv2.putText(vis_frame, time_str, (10, vis_frame.shape[0] - 10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-        # Draw hand position history if available
-        if len(self.detector.hand_positions) > 1:
-            for i in range(1, len(self.detector.hand_positions)):
-                pt1 = self.detector.hand_positions[i-1]
-                pt2 = self.detector.hand_positions[i]
-                cv2.line(vis_frame, pt1, pt2, (0, 255, 255), 2)
-        
-        # Add state information with confidence scores
-        info_text = []
-        chip_conf = f"{self.detector.chip_holding_confidence:.2f}"
-        box_conf = f"{self.detector.box_holding_confidence:.2f}"
-        
-        info_text.append(f"Holding chip: {self.detector.is_holding_chip} (conf: {chip_conf})")
-        info_text.append(f"Holding box: {self.detector.is_holding_box} (conf: {box_conf})")
-        info_text.append(f"Watch detected: {self.detector.watch_detected}")
-        
-        for i, text in enumerate(info_text):
-            y_pos = 60 + i * 25
-            cv2.putText(vis_frame, text, (10, y_pos), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
-        
-        # Instructions for keyboard controls
-        controls = "Controls: 'q'-quit | 'f'-fast forward | 'p'-pause | '+'/'-'-speed"
-        cv2.putText(vis_frame, controls, 
-                   (10, vis_frame.shape[0] - 40),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        
-        # Show speed indicator
-        cv2.putText(vis_frame, f"Delay: {self.frame_delay}ms", 
-                   (vis_frame.shape[1] - 150, vis_frame.shape[0] - 10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        
-        # Show frame
-        cv2.imshow('Video Annotation', vis_frame)
+        try:
+            # Make a copy of the frame to avoid modifying the original
+            vis_frame = frame.copy()
+            
+            # Draw ROIs
+            self._draw_roi(vis_frame, self.detector.chip_source_roi, (0, 0, 255), "Chip Source")
+            self._draw_roi(vis_frame, self.detector.chip_dest_roi, (0, 255, 0), "Chip Dest")
+            self._draw_roi(vis_frame, self.detector.box_source_roi, (255, 0, 0), "Box Source")
+            self._draw_roi(vis_frame, self.detector.box_dest_roi, (0, 255, 255), "Box Dest")
+            
+            # Draw current activity label with prominent background
+            label_size, _ = cv2.getTextSize(activity, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+            cv2.rectangle(vis_frame, (5, 5), (15 + label_size[0], 35), (0, 0, 0), -1)
+            
+            # Use color coding for activity
+            if activity == "Off Task":
+                color = (0, 0, 255)  # Red for off task
+            elif "Taking" in activity:
+                color = (255, 165, 0)  # Orange for taking
+            else:
+                color = (0, 255, 0)  # Green for placing
+            
+            cv2.putText(vis_frame, activity, (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            
+            # Draw timestamp
+            time_str = self._format_timestamp(timestamp)
+            cv2.putText(vis_frame, time_str, (10, vis_frame.shape[0] - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            
+            # Draw hand position history if available
+            if len(self.detector.hand_positions) > 1:
+                for i in range(1, len(self.detector.hand_positions)):
+                    pt1 = self.detector.hand_positions[i-1]
+                    pt2 = self.detector.hand_positions[i]
+                    cv2.line(vis_frame, pt1, pt2, (0, 255, 255), 2)
+            
+            # Add state information with confidence scores
+            info_text = []
+            chip_conf = f"{self.detector.chip_holding_confidence:.2f}"
+            box_conf = f"{self.detector.box_holding_confidence:.2f}"
+            
+            info_text.append(f"Holding chip: {self.detector.is_holding_chip} (conf: {chip_conf})")
+            info_text.append(f"Holding box: {self.detector.is_holding_box} (conf: {box_conf})")
+            info_text.append(f"Watch detected: {self.detector.watch_detected}")
+            
+            for i, text in enumerate(info_text):
+                y_pos = 60 + i * 25
+                cv2.putText(vis_frame, text, (10, y_pos), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
+            
+            # Instructions for keyboard controls
+            controls = "Controls: 'q'-quit | 'f'-fast forward | 'p'-pause | '+'/'-'-speed"
+            cv2.putText(vis_frame, controls, 
+                       (10, vis_frame.shape[0] - 40),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+            
+            # Show speed indicator
+            cv2.putText(vis_frame, f"Delay: {self.frame_delay}ms", 
+                       (vis_frame.shape[1] - 150, vis_frame.shape[0] - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            # Show frame
+            cv2.imshow('Video Annotation', vis_frame)
+        except Exception as e:
+            self.log(f"Warning: Visualization failed - {str(e)}", "WARNING")
+            self.headless_mode = True  # Switch to headless mode if visualization fails
+            self.log("Switching to headless mode (no visualization)", "WARNING")
     
     def _draw_roi(self, frame, roi, color, label):
         """Draw a region of interest on the frame"""

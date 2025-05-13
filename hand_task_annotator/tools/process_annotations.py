@@ -78,7 +78,8 @@ def process_video_for_annotations(video_file, output_csv, sampling_rate=25, debu
             sampling_rate=sampling_rate,
             output_path=output_csv,
             real_time_output=True,
-            debug_mode=debug
+            debug_mode=debug,
+            headless_mode=True  # Always use headless mode for batch processing
         )
         
         # Process video
@@ -222,6 +223,8 @@ def parse_args():
                       help='Keep temporary processing files')
     parser.add_argument('--debug', '-d', action='store_true',
                       help='Enable debug mode with verbose output')
+    parser.add_argument('--headless', action='store_true',
+                      help='Run in headless mode (no visualization)')
                       
     return parser.parse_args()
 
