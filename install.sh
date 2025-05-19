@@ -1,5 +1,6 @@
 #!/bin/bash
 # Installation script for Hand Task Annotator
+# Author: Sahil Jagtap
 
 echo "Installing Hand Task Annotator..."
 
