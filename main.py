@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hand Task Annotator - Main entry point for the annotation system
+Hand Task Annotator - Main entry point for the annotation system.
 """
 
 import sys
